@@ -9,7 +9,6 @@ app.use(cors());
 app.use(express.json());
 
 const uri = `mongodb+srv://${process.env.DB_USERNAME}:${process.env.DB_PASSWORD}@cluster0.zeenoci.mongodb.net/?appName=Cluster0`;
-
 const client = new MongoClient(uri, {
   serverApi: {
     version: ServerApiVersion.v1,
@@ -21,22 +20,440 @@ const client = new MongoClient(uri, {
 async function run() {
   const db = client.db("hallApps");
 
+  // ===== COLLECTIONS =====
   const usersCollection = db.collection("users");
-const complaintsCollection = db.collection("complaints");
-const noticesCollection = db.collection("notices");
-const paymentsCollection = db.collection("payments");
-const menusCollection = db.collection("menus");
+  const studentsCollection = db.collection("students");
+  const noticesCollection = db.collection("notices");
+  const complaintsCollection = db.collection("complaints");
+  const paymentsCollection = db.collection("payments");
+  const canteenMenuCollection = db.collection("canteenMenu");
+  const eventsCollection = db.collection("events");
 
-//   // GET all items
-//   app.get("/items", async (req, res) => {
-//     try {
-//       const items = await itemsCollection.find().toArray();
-//       res.send(items);
-//     } catch (error) {
-//       res.status(500).send({ error: "Server error" });
-//     }
-//   });
 
+  // ============================================================
+  // AUTH ROUTES
+  // ============================================================
+
+  // Register
+  app.post("/api/auth/register", async (req, res) => {
+    try {
+      const { name, email, password, role, subRole } = req.body;
+
+      const existing = await usersCollection.findOne({ email });
+      if (existing) return res.status(400).json({ message: "User already exists" });
+
+      const newUser = {
+        name,
+        email,
+        password, // JWT step-এ bcrypt দিয়ে hash করব
+        role: role || "student",
+        subRole: subRole || null,
+        createdAt: new Date(),
+      };
+
+      const result = await usersCollection.insertOne(newUser);
+      res.status(201).json({ message: "User registered", userId: result.insertedId });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Login (simple — JWT step-এ token add করব)
+  app.post("/api/auth/login", async (req, res) => {
+    try {
+      const { email, password } = req.body;
+      const user = await usersCollection.findOne({ email });
+
+      if (!user || user.password !== password) {
+        return res.status(401).json({ message: "Invalid email or password" });
+      }
+
+      res.json({
+        _id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        subRole: user.subRole,
+      });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ============================================================
+  // ADMIN ROUTES
+  // ============================================================
+
+  // সব students দেখো
+  app.get("/api/admin/students", async (req, res) => {
+    try {
+      const students = await studentsCollection.find().toArray();
+      res.json(students);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // নতুন student add করো
+  app.post("/api/admin/students", async (req, res) => {
+    try {
+      const student = {
+        ...req.body,
+        createdAt: new Date(),
+      };
+      const result = await studentsCollection.insertOne(student);
+      res.status(201).json({ message: "Student added", studentId: result.insertedId });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Student update করো
+  app.put("/api/admin/students/:id", async (req, res) => {
+    try {
+      const id = req.params.id;
+      const updated = await studentsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: req.body }
+      );
+      res.json({ message: "Student updated", result: updated });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Student delete করো
+  app.delete("/api/admin/students/:id", async (req, res) => {
+    try {
+      const id = req.params.id;
+      await studentsCollection.deleteOne({ _id: new ObjectId(id) });
+      res.json({ message: "Student deleted" });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Room/Seat allocate করো
+  app.put("/api/admin/allocate-room/:studentId", async (req, res) => {
+    try {
+      const { roomNumber, seatNumber, hallName } = req.body;
+      const result = await studentsCollection.updateOne(
+        { _id: new ObjectId(req.params.studentId) },
+        { $set: { roomNumber, seatNumber, hallName } }
+      );
+      res.json({ message: "Room allocated", result });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ============================================================
+  // NOTICE ROUTES
+  // ============================================================
+
+  // সব notices দেখো (student + admin দুজনেই দেখতে পারবে)
+  app.get("/api/notices", async (req, res) => {
+    try {
+      const notices = await noticesCollection
+        .find()
+        .sort({ createdAt: -1 })
+        .toArray();
+      res.json(notices);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Admin notice publish করবে
+  app.post("/api/admin/notices", async (req, res) => {
+    try {
+      const notice = {
+        ...req.body,
+        createdAt: new Date(),
+      };
+      const result = await noticesCollection.insertOne(notice);
+      res.status(201).json({ message: "Notice published", noticeId: result.insertedId });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Notice delete করো
+  app.delete("/api/admin/notices/:id", async (req, res) => {
+    try {
+      await noticesCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+      res.json({ message: "Notice deleted" });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ============================================================
+  // COMPLAINT ROUTES
+  // ============================================================
+
+  // Student complaint submit করবে
+  app.post("/api/complaints", async (req, res) => {
+    try {
+      const complaint = {
+        ...req.body,
+        status: "pending",
+        createdAt: new Date(),
+      };
+      const result = await complaintsCollection.insertOne(complaint);
+      res.status(201).json({ message: "Complaint submitted", complaintId: result.insertedId });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Admin/HallRep সব complaints দেখবে
+  app.get("/api/complaints", async (req, res) => {
+    try {
+      const complaints = await complaintsCollection
+        .find()
+        .sort({ createdAt: -1 })
+        .toArray();
+      res.json(complaints);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Student নিজের complaints দেখবে
+  app.get("/api/complaints/student/:studentEmail", async (req, res) => {
+    try {
+      const complaints = await complaintsCollection
+        .find({ studentEmail: req.params.studentEmail })
+        .sort({ createdAt: -1 })
+        .toArray();
+      res.json(complaints);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Admin complaint resolve/update করবে
+  app.put("/api/complaints/:id", async (req, res) => {
+    try {
+      const result = await complaintsCollection.updateOne(
+        { _id: new ObjectId(req.params.id) },
+        { $set: { ...req.body, updatedAt: new Date() } }
+      );
+      res.json({ message: "Complaint updated", result });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ============================================================
+  // PAYMENT ROUTES (Accountant)
+  // ============================================================
+
+  // সব payments দেখো
+  app.get("/api/payments", async (req, res) => {
+    try {
+      const payments = await paymentsCollection.find().toArray();
+      res.json(payments);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Due list (unpaid students)
+  app.get("/api/payments/due", async (req, res) => {
+    try {
+      const dueList = await paymentsCollection
+        .find({ status: "unpaid" })
+        .toArray();
+      res.json(dueList);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Student নিজের payment status দেখবে
+  app.get("/api/payments/student/:studentId", async (req, res) => {
+    try {
+      const payments = await paymentsCollection
+        .find({ studentId: req.params.studentId })
+        .toArray();
+      res.json(payments);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Accountant payment add করবে
+  app.post("/api/payments", async (req, res) => {
+    try {
+      const payment = {
+        ...req.body,
+        createdAt: new Date(),
+      };
+      const result = await paymentsCollection.insertOne(payment);
+      res.status(201).json({ message: "Payment recorded", paymentId: result.insertedId });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Accountant payment update করবে (paid/unpaid/scholarship)
+  app.put("/api/payments/:id", async (req, res) => {
+    try {
+      const result = await paymentsCollection.updateOne(
+        { _id: new ObjectId(req.params.id) },
+        { $set: { ...req.body, updatedAt: new Date() } }
+      );
+      res.json({ message: "Payment updated", result });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ============================================================
+  // CANTEEN MENU ROUTES
+  // ============================================================
+
+  // আজকের menu দেখো
+  app.get("/api/canteen/menu/today", async (req, res) => {
+    try {
+      const today = new Date().toISOString().split("T")[0]; // "2024-12-01"
+      const menu = await canteenMenuCollection.findOne({ date: today });
+      res.json(menu || { message: "No menu posted for today" });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // সব menus দেখো
+  app.get("/api/canteen/menu", async (req, res) => {
+    try {
+      const menus = await canteenMenuCollection
+        .find()
+        .sort({ date: -1 })
+        .toArray();
+      res.json(menus);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Canteen Manager menu post করবে
+  app.post("/api/canteen/menu", async (req, res) => {
+    try {
+      // same date-এ already আছে কিনা check করো
+      const existing = await canteenMenuCollection.findOne({ date: req.body.date });
+      if (existing) {
+        // থাকলে update করো
+        await canteenMenuCollection.updateOne(
+          { date: req.body.date },
+          { $set: { ...req.body, updatedAt: new Date() } }
+        );
+        return res.json({ message: "Menu updated for " + req.body.date });
+      }
+
+      const menu = { ...req.body, createdAt: new Date() };
+      const result = await canteenMenuCollection.insertOne(menu);
+      res.status(201).json({ message: "Menu posted", menuId: result.insertedId });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Student feedback দেবে canteen-এ
+  app.post("/api/canteen/feedback", async (req, res) => {
+    try {
+      const feedbackCollection = db.collection("canteenFeedback");
+      const feedback = { ...req.body, createdAt: new Date() };
+      await feedbackCollection.insertOne(feedback);
+      res.status(201).json({ message: "Feedback submitted" });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Canteen Manager feedback দেখবে
+  app.get("/api/canteen/feedback", async (req, res) => {
+    try {
+      const feedbackCollection = db.collection("canteenFeedback");
+      const feedbacks = await feedbackCollection
+        .find()
+        .sort({ createdAt: -1 })
+        .toArray();
+      res.json(feedbacks);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ============================================================
+  // HALL REP ROUTES
+  // ============================================================
+
+  // সব events দেখো
+  app.get("/api/events", async (req, res) => {
+    try {
+      const events = await eventsCollection
+        .find()
+        .sort({ date: -1 })
+        .toArray();
+      res.json(events);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Hall Rep event add করবে
+  app.post("/api/events", async (req, res) => {
+    try {
+      const event = { ...req.body, createdAt: new Date() };
+      const result = await eventsCollection.insertOne(event);
+      res.status(201).json({ message: "Event created", eventId: result.insertedId });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Event update করো
+  app.put("/api/events/:id", async (req, res) => {
+    try {
+      await eventsCollection.updateOne(
+        { _id: new ObjectId(req.params.id) },
+        { $set: { ...req.body, updatedAt: new Date() } }
+      );
+      res.json({ message: "Event updated" });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Event delete করো
+  app.delete("/api/events/:id", async (req, res) => {
+    try {
+      await eventsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+      res.json({ message: "Event deleted" });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // ============================================================
+  // STUDENT PROFILE ROUTE
+  // ============================================================
+
+  // Student নিজের profile দেখবে (email দিয়ে)
+  app.get("/api/student/profile/:email", async (req, res) => {
+    try {
+      const student = await studentsCollection.findOne({
+        email: req.params.email,
+      });
+      if (!student) return res.status(404).json({ message: "Student not found" });
+      res.json(student);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
 
 
 
