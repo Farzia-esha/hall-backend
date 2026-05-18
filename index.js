@@ -456,7 +456,23 @@ async function run() {
   });
 
 
-
+// Firebase login এর পরে role fetch
+app.get("/api/auth/me", async (req, res) => {
+  try {
+    const { email } = req.query;
+    const user = await usersCollection.findOne({ email });
+    if (!user) return res.status(404).json({ message: "User not found" });
+    res.json({
+      _id: user._id,
+      name: user.name,
+      email: user.email,
+      role: user.role,
+      subRole: user.subRole,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
 
 
