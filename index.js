@@ -18,6 +18,15 @@ const client = new MongoClient(uri, {
 });
 
 async function run() {
+  try {
+    // Try to connect to MongoDB
+    await client.connect();
+    console.log("✅ Connected to MongoDB");
+  } catch (err) {
+    console.error("⚠️  MongoDB connection warning:", err.message);
+    console.log("⚠️  Continuing without database...");
+  }
+
   const db = client.db("hallApps");
 
   // ===== COLLECTIONS =====
@@ -31,52 +40,132 @@ async function run() {
 
 
   // ============================================================
-  // AUTH ROUTES
+  // AUTH ROUTES (Firebase Integration)
   // ============================================================
 
-  // Register
-  app.post("/api/auth/register", async (req, res) => {
+  // ✅ Signup - Firebase এর সাথে integrate করা
+  app.post("/api/auth/signup", async (req, res) => {
     try {
-      const { name, email, password, role, subRole } = req.body;
+      const { fullName, email, phone, uid, role } = req.body;
 
+      // Validation
+      if (!fullName || !email || !phone || !uid) {
+        return res.status(400).json({ message: "Missing required fields" });
+      }
+
+      // Check if user already exists
       const existing = await usersCollection.findOne({ email });
-      if (existing) return res.status(400).json({ message: "User already exists" });
+      if (existing) {
+        return res.status(400).json({ message: "Email already exists" });
+      }
 
+      // Create new user
       const newUser = {
-        name,
+        uid, // Firebase UID
+        fullName,
         email,
-        password, // JWT step-এ bcrypt দিয়ে hash করব
+        phone,
         role: role || "student",
-        subRole: subRole || null,
+        profilePicture: null,
+        isActive: true,
         createdAt: new Date(),
+        updatedAt: new Date(),
+        metadata: {
+          lastLogin: null,
+          loginCount: 0,
+        },
       };
 
       const result = await usersCollection.insertOne(newUser);
-      res.status(201).json({ message: "User registered", userId: result.insertedId });
+
+      // Return user data
+      res.status(201).json({
+        id: result.insertedId,
+        fullName: newUser.fullName,
+        email: newUser.email,
+        phone: newUser.phone,
+        uid: newUser.uid,
+        role: newUser.role,
+        createdAt: newUser.createdAt,
+      });
     } catch (err) {
-      res.status(500).json({ message: err.message });
+      console.error("Signup error:", err);
+      res.status(500).json({ message: "Server error during signup" });
     }
   });
 
-  // Login (simple — JWT step-এ token add করব)
+  // ✅ Login - Firebase UID verification
   app.post("/api/auth/login", async (req, res) => {
     try {
-      const { email, password } = req.body;
+      const { email, uid } = req.body;
+
+      // Validation
+      if (!email || !uid) {
+        return res.status(400).json({ message: "Email and UID are required" });
+      }
+
+      // Find user
       const user = await usersCollection.findOne({ email });
 
-      if (!user || user.password !== password) {
-        return res.status(401).json({ message: "Invalid email or password" });
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
+      }
+
+      // Verify UID matches
+      if (user.uid !== uid) {
+        return res.status(401).json({ message: "UID mismatch" });
+      }
+
+      // Update last login
+      await usersCollection.updateOne(
+        { _id: user._id },
+        {
+          $set: {
+            "metadata.lastLogin": new Date(),
+            updatedAt: new Date(),
+          },
+          $inc: { "metadata.loginCount": 1 },
+        }
+      );
+
+      // Return user data
+      res.json({
+        id: user._id,
+        fullName: user.fullName,
+        email: user.email,
+        phone: user.phone,
+        uid: user.uid,
+        role: user.role,
+        createdAt: user.createdAt,
+      });
+    } catch (err) {
+      console.error("Login error:", err);
+      res.status(500).json({ message: "Server error during login" });
+    }
+  });
+
+  // Get user profile by UID
+  app.get("/api/auth/profile/:uid", async (req, res) => {
+    try {
+      const user = await usersCollection.findOne({ uid: req.params.uid });
+
+      if (!user) {
+        return res.status(404).json({ message: "User not found" });
       }
 
       res.json({
-        _id: user._id,
-        name: user.name,
+        id: user._id,
+        fullName: user.fullName,
         email: user.email,
+        phone: user.phone,
+        uid: user.uid,
         role: user.role,
-        subRole: user.subRole,
+        profilePicture: user.profilePicture,
+        createdAt: user.createdAt,
       });
     } catch (err) {
-      res.status(500).json({ message: err.message });
+      console.error("Profile error:", err);
+      res.status(500).json({ message: "Server error" });
     }
   });
 
@@ -478,11 +567,17 @@ app.get("/api/auth/me", async (req, res) => {
 
 
 //start of the index.js
-  console.log("MongoDB Ready");
+  console.log("✅ Routes configured");
 }
 
-run().catch(console.dir);
-
+// Start server first, then initialize database connection
 app.listen(port, () => {
-  console.log(`Server running on port ${port}`);
+  console.log(`🚀 Server running on port ${port}`);
+  console.log(`📡 API URL: http://localhost:${port}`);
+  console.log(`📝 Base URL: http://localhost:${port}/api`);
+});
+
+// Initialize database connection in background
+run().catch(err => {
+  console.error("❌ Database initialization error:", err);
 });
