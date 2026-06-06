@@ -1,6 +1,8 @@
 const express = require("express");
 const app = express();
 const cors = require("cors");
+const bcrypt = require("bcryptjs");
+const crypto = require("crypto");
 require("dotenv").config();
 const { MongoClient, ServerApiVersion,ObjectId } = require("mongodb");
 const port = process.env.PORT || 5000;
@@ -43,13 +45,13 @@ async function run() {
   // AUTH ROUTES (Firebase Integration)
   // ============================================================
 
-  // ✅ Signup - Firebase এর সাথে integrate করা
+  // ✅ Signup - Password-based authentication
   app.post("/api/auth/signup", async (req, res) => {
     try {
-      const { fullName, email, phone, uid, role } = req.body;
+      const { fullName, email, phone, password, role } = req.body;
 
       // Validation
-      if (!fullName || !email || !phone || !uid) {
+      if (!fullName || !email || !phone || !password) {
         return res.status(400).json({ message: "Missing required fields" });
       }
 
@@ -59,12 +61,19 @@ async function run() {
         return res.status(400).json({ message: "Email already exists" });
       }
 
+      // Generate UID (unique identifier for frontend)
+      const uid = `user_${crypto.randomBytes(12).toString('hex')}`;
+
+      // Hash password
+      const hashedPassword = await bcrypt.hash(password, 10);
+
       // Create new user
       const newUser = {
-        uid, // Firebase UID
+        uid, // Generated UID for frontend
         fullName,
         email,
         phone,
+        password: hashedPassword, // Store hashed password
         role: role || "student",
         profilePicture: null,
         isActive: true,
@@ -78,7 +87,7 @@ async function run() {
 
       const result = await usersCollection.insertOne(newUser);
 
-      // Return user data
+      // Return user data (without password)
       res.status(201).json({
         id: result.insertedId,
         fullName: newUser.fullName,
@@ -94,14 +103,14 @@ async function run() {
     }
   });
 
-  // ✅ Login - Firebase UID verification
+  // ✅ Login - Password verification
   app.post("/api/auth/login", async (req, res) => {
     try {
-      const { email, uid } = req.body;
+      const { email, password } = req.body;
 
       // Validation
-      if (!email || !uid) {
-        return res.status(400).json({ message: "Email and UID are required" });
+      if (!email || !password) {
+        return res.status(400).json({ message: "Email and password are required" });
       }
 
       // Find user
@@ -111,9 +120,10 @@ async function run() {
         return res.status(404).json({ message: "User not found" });
       }
 
-      // Verify UID matches
-      if (user.uid !== uid) {
-        return res.status(401).json({ message: "UID mismatch" });
+      // Verify password
+      const isPasswordValid = await bcrypt.compare(password, user.password);
+      if (!isPasswordValid) {
+        return res.status(401).json({ message: "Invalid password" });
       }
 
       // Update last login
