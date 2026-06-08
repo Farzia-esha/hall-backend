@@ -486,6 +486,26 @@ async function run() {
     }
   });
 
+  // Menu delete করো
+app.delete("/api/canteen/menu/:id", async (req, res) => {
+  try {
+    await canteenMenuCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+    res.json({ message: "Menu deleted" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Date দিয়ে specific menu দেখো
+app.get("/api/canteen/menu/date/:date", async (req, res) => {
+  try {
+    const menu = await canteenMenuCollection.findOne({ date: req.params.date });
+    res.json(menu || { message: "No menu for this date" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
   // ============================================================
   // HALL REP ROUTES
   // ============================================================
