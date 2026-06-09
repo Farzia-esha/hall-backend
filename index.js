@@ -562,17 +562,48 @@ app.get("/api/canteen/menu/date/:date", async (req, res) => {
   // ============================================================
 
   // Student নিজের profile দেখবে (email দিয়ে)
+  // app.get("/api/student/profile/:email", async (req, res) => {
+  //   try {
+  //     const student = await studentsCollection.findOne({
+  //       email: req.params.email,
+  //     });
+  //     if (!student) return res.status(404).json({ message: "Student not found" });
+  //     res.json(student);
+  //   } catch (err) {
+  //     res.status(500).json({ message: err.message });
+  //   }
+  // });
+
   app.get("/api/student/profile/:email", async (req, res) => {
-    try {
-      const student = await studentsCollection.findOne({
-        email: req.params.email,
+  try {
+    // আগে studentsCollection-এ খোঁজো
+    let student = await studentsCollection.findOne({ email: req.params.email });
+
+    if (!student) {
+      // না পেলে usersCollection থেকে basic info দাও
+      const user = await usersCollection.findOne({ email: req.params.email });
+      if (!user) return res.status(404).json({ message: "Student not found" });
+
+      // user data দিয়ে একটা partial profile বানাও
+      return res.json({
+        name: user.fullName,
+        email: user.email,
+        phone: user.phone,
+        studentId: null,
+        department: null,
+        session: null,
+        hallName: null,
+        roomNumber: null,
+        seatNumber: null,
+        _fromUsers: true, // admin এখনো student record add করেনি
       });
-      if (!student) return res.status(404).json({ message: "Student not found" });
-      res.json(student);
-    } catch (err) {
-      res.status(500).json({ message: err.message });
     }
-  });
+
+    res.json(student);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
 
 // Firebase login এর পরে role fetch
