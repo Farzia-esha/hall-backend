@@ -1,5 +1,10 @@
 const express = require("express");
 const app = express();
+
+// const Stripe = require("stripe");
+// const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+// const { ObjectId: ObjectIdForWebhook } = require("mongodb");
+
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
@@ -39,7 +44,10 @@ async function run() {
   const paymentsCollection = db.collection("payments");
   const canteenMenuCollection = db.collection("canteenMenu");
   const eventsCollection = db.collection("events");
-
+  const applicationsCollection = db.collection("hallApplications");
+  const seatsCollection = db.collection("hallSeats");
+  const settingsCollection = db.collection("appSettings");
+ 
 
   // Signup - Password-based authentication
   app.post("/api/auth/signup", async (req, res) => {
@@ -175,10 +183,7 @@ async function run() {
     }
   });
 
-  // ============================================================
   // ADMIN ROUTES
-  // ============================================================
-
   app.get("/api/admin/students", async (req, res) => {
     try {
       const students = await studentsCollection.find().toArray();
@@ -241,9 +246,6 @@ async function run() {
     }
   });
 
-  // ============================================================
-// USER MANAGEMENT ROUTES (Admin)
-// ============================================================
 
 // সব users দেখো
 app.get("/api/admin/users", async (req, res) => {
@@ -286,9 +288,7 @@ app.delete("/api/admin/users/:id", async (req, res) => {
   }
 });
 
-  // ============================================================
   // NOTICE ROUTES
-  // ============================================================
 
   // সব notices দেখো (student + admin দুজনেই দেখতে পারবে)
   app.get("/api/notices", async (req, res) => {
@@ -327,10 +327,7 @@ app.delete("/api/admin/users/:id", async (req, res) => {
     }
   });
 
-  // ============================================================
   // COMPLAINT ROUTES
-  // ============================================================
-
   // Student complaint submit করবে
   app.post("/api/complaints", async (req, res) => {
     try {
@@ -385,9 +382,7 @@ app.delete("/api/admin/users/:id", async (req, res) => {
     }
   });
 
-  // ============================================================
   // PAYMENT ROUTES (Accountant)
-  // ============================================================
 
   // সব payments দেখো
   app.get("/api/payments", async (req, res) => {
@@ -469,9 +464,7 @@ app.get("/api/payments/student/:studentId", async (req, res) => {
     }
   });
 
-  // ============================================================
   // CANTEEN MENU ROUTES
-  // ============================================================
 
   // আজকের menu দেখো
   app.get("/api/canteen/menu/today", async (req, res) => {
@@ -565,9 +558,7 @@ app.get("/api/canteen/menu/date/:date", async (req, res) => {
   }
 });
 
-  // ============================================================
   // HALL REP ROUTES
-  // ============================================================
 
   // সব events দেখো
   app.get("/api/events", async (req, res) => {
@@ -630,7 +621,6 @@ app.patch("/api/events/:id/activity", async (req, res) => {
 });
 
 
-
   app.get("/api/student/profile/:email", async (req, res) => {
   try {
     // আগে studentsCollection-এ খোঁজো
@@ -663,8 +653,6 @@ app.patch("/api/events/:id/activity", async (req, res) => {
 });
 
 
-
-
 // Firebase login এর পরে role fetch
 app.get("/api/auth/me", async (req, res) => {
   try {
@@ -683,7 +671,424 @@ app.get("/api/auth/me", async (req, res) => {
   }
 });
 
+// APPLICATION WINDOW SETTINGS
+// Public: anyone (student app) can check if applications are open
+app.get("/api/application-settings", async (req, res) => {
+  try {
+    const settings = await settingsCollection.findOne({ key: "hallApplication" });
+    if (!settings) {
+      return res.json({
+        isOpen: false,
+        startDate: null,
+        endDate: null,
+        fee: 0,
+        mode: "auto",
+      });
+    }
+    const now = new Date();
+    let isOpen;
+    if (settings.mode === "manual") {
+      isOpen = !!settings.manualOpen;
+    } else {
+      isOpen =
+        !!(settings.startDate && settings.endDate) &&
+        now >= new Date(settings.startDate) &&
+        now <= new Date(settings.endDate);
+    }
+    res.json({ ...settings, isOpen });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+ 
+// Admin: configure the window
+// body: { startDate, endDate, fee, mode: "auto" | "manual", manualOpen: bool }
+app.put("/api/admin/application-settings", async (req, res) => {
+  try {
+    const { startDate, endDate, fee, mode, manualOpen } = req.body;
+    await settingsCollection.updateOne(
+      { key: "hallApplication" },
+      {
+        $set: {
+          key: "hallApplication",
+          startDate: startDate || null,
+          endDate: endDate || null,
+          fee: Number(fee) || 0,
+          mode: mode === "manual" ? "manual" : "auto",
+          manualOpen: !!manualOpen,
+          updatedAt: new Date(),
+        },
+      },
+      { upsert: true }
+    );
+    res.json({ message: "Settings updated" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+ 
+// SEAT INVENTORY (so admin can only allocate a seat that's vacant)
+ 
+app.get("/api/admin/seats", async (req, res) => {
+  try {
+    const { status } = req.query; // "vacant" | "occupied"
+    const filter = status ? { status } : {};
+    const seats = await seatsCollection
+      .find(filter)
+      .sort({ hallName: 1, roomNumber: 1, seatNumber: 1 })
+      .toArray();
+    res.json(seats);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+ 
+app.post("/api/admin/seats", async (req, res) => {
+  try {
+    const { hallName, roomNumber, seatNumber } = req.body;
+    if (!hallName || !roomNumber || !seatNumber) {
+      return res
+        .status(400)
+        .json({ message: "hallName, roomNumber, seatNumber are required" });
+    }
+    const existing = await seatsCollection.findOne({ hallName, roomNumber, seatNumber });
+    if (existing) return res.status(400).json({ message: "That seat already exists" });
+ 
+    const seat = {
+      hallName,
+      roomNumber,
+      seatNumber,
+      status: "vacant",
+      occupiedBy: null,
+      createdAt: new Date(),
+    };
+    const result = await seatsCollection.insertOne(seat);
+    res.status(201).json({ message: "Seat added", seatId: result.insertedId });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+ 
+app.delete("/api/admin/seats/:id", async (req, res) => {
+  try {
+    const seat = await seatsCollection.findOne({ _id: new ObjectId(req.params.id) });
+    if (seat?.status === "occupied") {
+      return res.status(400).json({ message: "Cannot remove an occupied seat" });
+    }
+    await seatsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+    res.json({ message: "Seat removed" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+ 
 
+// STUDENT: SUBMIT / VIEW APPLICATION
+ 
+// Get the current user's latest application (or null)
+app.get("/api/applications/me/:email", async (req, res) => {
+  try {
+    const application = await applicationsCollection.findOne(
+      { studentEmail: req.params.email },
+      { sort: { createdAt: -1 } }
+    );
+    res.json(application || null);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+ 
+// // Submit a new application (only while window is open, only one active at a time)
+// app.post("/api/applications", async (req, res) => {
+//   try {
+//     const settings = await settingsCollection.findOne({ key: "hallApplication" });
+//     const now = new Date();
+//     let isOpen = false;
+//     if (settings) {
+//       isOpen =
+//         settings.mode === "manual"
+//           ? !!settings.manualOpen
+//           : !!(settings.startDate && settings.endDate) &&
+//             now >= new Date(settings.startDate) &&
+//             now <= new Date(settings.endDate);
+//     }
+//     if (!isOpen) {
+//       return res.status(400).json({ message: "Hall applications are currently closed" });
+//     }
+ 
+//     const { studentEmail } = req.body;
+//     if (!studentEmail) {
+//       return res.status(400).json({ message: "studentEmail is required" });
+//     }
+ 
+//     const existing = await applicationsCollection.findOne({
+//       studentEmail,
+//       status: { $in: ["pending", "approved"] },
+//     });
+//     if (existing) {
+//       return res.status(400).json({ message: "You already have an active application" });
+//     }
+ 
+//     const application = {
+//       ...req.body,
+//       status: "pending",
+//       paymentStatus: "unpaid",
+//       fee: settings?.fee || 0,
+//       createdAt: new Date(),
+//     };
+//     const result = await applicationsCollection.insertOne(application);
+//     res.status(201).json({
+//       message: "Application submitted",
+//       applicationId: result.insertedId,
+//       fee: application.fee,
+//     });
+//   } catch (err) {
+//     res.status(500).json({ message: err.message });
+//   }
+// });
+
+// Submit a new application (only while window is open, only one active at a time,
+// and only if the student doesn't already have a hall seat)
+app.post("/api/applications", async (req, res) => {
+  try {
+    const settings = await settingsCollection.findOne({ key: "hallApplication" });
+    const now = new Date();
+    let isOpen = false;
+    if (settings) {
+      isOpen =
+        settings.mode === "manual"
+          ? !!settings.manualOpen
+          : !!(settings.startDate && settings.endDate) &&
+            now >= new Date(settings.startDate) &&
+            now <= new Date(settings.endDate);
+    }
+    if (!isOpen) {
+      return res.status(400).json({ message: "Hall applications are currently closed" });
+    }
+
+    const { studentEmail } = req.body;
+    if (!studentEmail) {
+      return res.status(400).json({ message: "studentEmail is required" });
+    }
+
+    // 🚫 Already has a seat? Block re-application.
+    const existingSeat = await studentsCollection.findOne({
+      email: studentEmail,
+      roomNumber: { $exists: true, $ne: null, $ne: "" },
+    });
+    if (existingSeat) {
+      return res.status(400).json({
+        message: "You already have a hall seat allocated. You cannot apply again.",
+      });
+    }
+
+    // 🚫 Already has a pending/approved application? Block duplicate.
+    const existing = await applicationsCollection.findOne({
+      studentEmail,
+      status: { $in: ["pending", "approved"] },
+    });
+    if (existing) {
+      return res.status(400).json({ message: "You already have an active application" });
+    }
+
+    const application = {
+      ...req.body,
+      status: "pending",
+      paymentStatus: "unpaid",
+      fee: settings?.fee || 0,
+      createdAt: new Date(),
+    };
+    const result = await applicationsCollection.insertOne(application);
+
+    // Mirror this as an "unpaid" record in the payments collection too,
+    // so it shows up in the existing Payment/Due-List screens.
+    await paymentsCollection.insertOne({
+      applicationId: result.insertedId,
+      studentId: req.body.studentId || null,
+      studentName: req.body.studentName || null,
+      email: studentEmail,
+      uid: req.body.uid || null,
+      amount: settings?.fee || 0,
+      scholarshipAmount: 0,
+      semester: "Hall Application Fee",
+      status: "unpaid",
+      source: "hall_application",
+      createdAt: new Date(),
+    });
+
+    res.status(201).json({
+      message: "Application submitted",
+      applicationId: result.insertedId,
+      fee: application.fee,
+    });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// Fallback/manual check in case the webhook hasn't landed yet (or isn't set
+// up) by the time the app returns from the browser. This is what keeps the
+// applications collection AND the payments collection (used by the existing
+// Payment / Due List screens) in sync.
+app.get("/api/payments/session-status/:sessionId", async (req, res) => {
+  try {
+    const session = await stripe.checkout.sessions.retrieve(req.params.sessionId);
+    const status = session.payment_status; // "paid" | "unpaid"
+
+    if (status === "paid") {
+      const applicationId = session.metadata?.applicationId;
+      if (applicationId) {
+        await applicationsCollection.updateOne(
+          { _id: new ObjectId(applicationId) },
+          { $set: { paymentStatus: "paid", paidAt: new Date(), stripeSessionId: session.id } }
+        );
+        await paymentsCollection.updateOne(
+          { applicationId: new ObjectId(applicationId) },
+          { $set: { status: "paid", paidAt: new Date(), stripeSessionId: session.id } }
+        );
+      }
+    }
+
+    res.json({ status });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+ 
+// ADMIN: REVIEW APPLICATIONS
+ 
+app.get("/api/admin/applications", async (req, res) => {
+  try {
+    const { status } = req.query;
+    const filter = status ? { status } : {};
+    const apps = await applicationsCollection.find(filter).sort({ createdAt: -1 }).toArray();
+    res.json(apps);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+ 
+// Approve — allocates a specific vacant seat (subject to availability)
+// body: { seatId }
+app.put("/api/admin/applications/:id/approve", async (req, res) => {
+  try {
+    const { seatId } = req.body;
+    if (!seatId) return res.status(400).json({ message: "seatId is required" });
+ 
+    const application = await applicationsCollection.findOne({ _id: new ObjectId(req.params.id) });
+    if (!application) return res.status(404).json({ message: "Application not found" });
+ 
+    if (application.paymentStatus !== "paid") {
+      return res.status(400).json({ message: "Application fee has not been paid yet" });
+    }
+ 
+    const seat = await seatsCollection.findOne({ _id: new ObjectId(seatId), status: "vacant" });
+    if (!seat) return res.status(400).json({ message: "That seat is no longer available" });
+ 
+    await seatsCollection.updateOne(
+      { _id: seat._id },
+      { $set: { status: "occupied", occupiedBy: application.studentEmail } }
+    );
+ 
+    await applicationsCollection.updateOne(
+      { _id: application._id },
+      {
+        $set: {
+          status: "approved",
+          hallName: seat.hallName,
+          roomNumber: seat.roomNumber,
+          seatNumber: seat.seatNumber,
+          reviewedAt: new Date(),
+        },
+      }
+    );
+ 
+    // Keep the students collection (used by profile/room views) in sync
+    await studentsCollection.updateOne(
+      { email: application.studentEmail },
+      {
+        $set: {
+          name: application.studentName,
+          email: application.studentEmail,
+          studentId: application.studentId,
+          department: application.department,
+          session: application.session,
+          phone: application.phone,
+          hallName: seat.hallName,
+          roomNumber: seat.roomNumber,
+          seatNumber: seat.seatNumber,
+          updatedAt: new Date(),
+        },
+      },
+      { upsert: true }
+    );
+ 
+    res.json({ message: "Application approved and seat allocated" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+ 
+app.put("/api/admin/applications/:id/reject", async (req, res) => {
+  try {
+    const { reason } = req.body;
+    await applicationsCollection.updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { status: "rejected", rejectionReason: reason || "", reviewedAt: new Date() } }
+    );
+    res.json({ message: "Application rejected" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+ 
+// ============================================================
+// STRIPE CHECKOUT (application fee payment)
+// ============================================================
+ 
+app.post("/api/payments/create-checkout-session", async (req, res) => {
+  try {
+    const { applicationId, amount, studentEmail, successUrl, cancelUrl } = req.body;
+    if (!applicationId || !amount) {
+      return res.status(400).json({ message: "applicationId and amount are required" });
+    }
+ 
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      mode: "payment",
+      customer_email: studentEmail,
+      line_items: [
+        {
+          price_data: {
+            currency: "bdt",
+            product_data: { name: "Hall Seat Application Fee" },
+            unit_amount: Math.round(Number(amount) * 100),
+          },
+          quantity: 1,
+        },
+      ],
+      metadata: { applicationId },
+      success_url: successUrl || process.env.CLIENT_SUCCESS_SCHEME || "https://example.com/success",
+      cancel_url: cancelUrl || process.env.CLIENT_CANCEL_SCHEME || "https://example.com/cancel",
+    });
+ 
+    res.json({ url: session.url, sessionId: session.id });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+ 
+// the app returns from the browser (Stripe usually fires it within seconds).
+app.get("/api/payments/session-status/:sessionId", async (req, res) => {
+  try {
+    const session = await stripe.checkout.sessions.retrieve(req.params.sessionId);
+    res.json({ status: session.payment_status }); // "paid" | "unpaid"
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+ 
+//......................................
 
 
 //start of the index.js
