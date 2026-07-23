@@ -1,8 +1,9 @@
 const express = require("express");
 const app = express();
+require("dotenv").config();
 
-// const Stripe = require("stripe");
-// const stripe = Stripe(process.env.STRIPE_SECRET_KEY);
+const Stripe = require("stripe");
+const stripe = Stripe(process.env.STRIPE_SECRET);
 // const { ObjectId: ObjectIdForWebhook } = require("mongodb");
 
 const cors = require("cors");
@@ -798,55 +799,6 @@ app.get("/api/applications/me/:email", async (req, res) => {
   }
 });
  
-// // Submit a new application (only while window is open, only one active at a time)
-// app.post("/api/applications", async (req, res) => {
-//   try {
-//     const settings = await settingsCollection.findOne({ key: "hallApplication" });
-//     const now = new Date();
-//     let isOpen = false;
-//     if (settings) {
-//       isOpen =
-//         settings.mode === "manual"
-//           ? !!settings.manualOpen
-//           : !!(settings.startDate && settings.endDate) &&
-//             now >= new Date(settings.startDate) &&
-//             now <= new Date(settings.endDate);
-//     }
-//     if (!isOpen) {
-//       return res.status(400).json({ message: "Hall applications are currently closed" });
-//     }
- 
-//     const { studentEmail } = req.body;
-//     if (!studentEmail) {
-//       return res.status(400).json({ message: "studentEmail is required" });
-//     }
- 
-//     const existing = await applicationsCollection.findOne({
-//       studentEmail,
-//       status: { $in: ["pending", "approved"] },
-//     });
-//     if (existing) {
-//       return res.status(400).json({ message: "You already have an active application" });
-//     }
- 
-//     const application = {
-//       ...req.body,
-//       status: "pending",
-//       paymentStatus: "unpaid",
-//       fee: settings?.fee || 0,
-//       createdAt: new Date(),
-//     };
-//     const result = await applicationsCollection.insertOne(application);
-//     res.status(201).json({
-//       message: "Application submitted",
-//       applicationId: result.insertedId,
-//       fee: application.fee,
-//     });
-//   } catch (err) {
-//     res.status(500).json({ message: err.message });
-//   }
-// });
-
 // Submit a new application (only while window is open, only one active at a time,
 // and only if the student doesn't already have a hall seat)
 app.post("/api/applications", async (req, res) => {
@@ -926,35 +878,7 @@ app.post("/api/applications", async (req, res) => {
   }
 });
 
-// Fallback/manual check in case the webhook hasn't landed yet (or isn't set
-// up) by the time the app returns from the browser. This is what keeps the
-// applications collection AND the payments collection (used by the existing
-// Payment / Due List screens) in sync.
-app.get("/api/payments/session-status/:sessionId", async (req, res) => {
-  try {
-    const session = await stripe.checkout.sessions.retrieve(req.params.sessionId);
-    const status = session.payment_status; // "paid" | "unpaid"
 
-    if (status === "paid") {
-      const applicationId = session.metadata?.applicationId;
-      if (applicationId) {
-        await applicationsCollection.updateOne(
-          { _id: new ObjectId(applicationId) },
-          { $set: { paymentStatus: "paid", paidAt: new Date(), stripeSessionId: session.id } }
-        );
-        await paymentsCollection.updateOne(
-          { applicationId: new ObjectId(applicationId) },
-          { $set: { status: "paid", paidAt: new Date(), stripeSessionId: session.id } }
-        );
-      }
-    }
-
-    res.json({ status });
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
- 
 // ADMIN: REVIEW APPLICATIONS
  
 app.get("/api/admin/applications", async (req, res) => {
@@ -1078,18 +1002,35 @@ app.post("/api/payments/create-checkout-session", async (req, res) => {
   }
 });
  
-// the app returns from the browser (Stripe usually fires it within seconds).
+// Fallback/manual check in case the webhook hasn't landed yet (or isn't set
+// up) by the time the app returns from the browser. This is what keeps the
+// applications collection AND the payments collection (used by the existing
+// Payment / Due List screens) in sync.
 app.get("/api/payments/session-status/:sessionId", async (req, res) => {
   try {
     const session = await stripe.checkout.sessions.retrieve(req.params.sessionId);
-    res.json({ status: session.payment_status }); // "paid" | "unpaid"
+    const status = session.payment_status; // "paid" | "unpaid"
+
+    if (status === "paid") {
+      const applicationId = session.metadata?.applicationId;
+      if (applicationId) {
+        await applicationsCollection.updateOne(
+          { _id: new ObjectId(applicationId) },
+          { $set: { paymentStatus: "paid", paidAt: new Date(), stripeSessionId: session.id } }
+        );
+        await paymentsCollection.updateOne(
+          { applicationId: new ObjectId(applicationId) },
+          { $set: { status: "paid", paidAt: new Date(), stripeSessionId: session.id } }
+        );
+      }
+    }
+
+    res.json({ status });
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
 });
  
-//......................................
-
 
 //start of the index.js
   console.log("✅ Routes configured");
