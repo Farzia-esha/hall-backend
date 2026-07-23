@@ -69,7 +69,6 @@ async function run() {
       // Generate UID (unique identifier for frontend)
       const uid = `user_${crypto.randomBytes(12).toString('hex')}`;
 
-      // Hash password
       const hashedPassword = await bcrypt.hash(password, 10);
 
       // Create new user
@@ -78,7 +77,7 @@ async function run() {
         fullName,
         email,
         phone,
-        password: hashedPassword, // Store hashed password
+        password: hashedPassword,
         role: role || "student",
         profilePicture: null,
         isActive: true,
@@ -108,7 +107,7 @@ async function run() {
     }
   });
 
-  // Login - Password verification
+  // Login - Pw verification
   app.post("/api/auth/login", async (req, res) => {
     try {
       const { email, password } = req.body;
@@ -194,7 +193,7 @@ async function run() {
     }
   });
 
-  // নতুন student add করো
+  // student add
   app.post("/api/admin/students", async (req, res) => {
     try {
       const student = {
@@ -208,7 +207,7 @@ async function run() {
     }
   });
 
-  // Student update করো
+  // Student update
   app.put("/api/admin/students/:id", async (req, res) => {
     try {
       const id = req.params.id;
@@ -222,7 +221,7 @@ async function run() {
     }
   });
 
-  // Student delete করো
+  // Student delete
   app.delete("/api/admin/students/:id", async (req, res) => {
     try {
       const id = req.params.id;
@@ -233,7 +232,7 @@ async function run() {
     }
   });
 
-  // Room/Seat allocate করো
+  // Room/Seat allocate
   app.put("/api/admin/allocate-room/:studentId", async (req, res) => {
     try {
       const { roomNumber, seatNumber, hallName } = req.body;
@@ -261,7 +260,7 @@ app.get("/api/admin/users", async (req, res) => {
   }
 });
 
-// User role update করো
+// User role update
 app.put("/api/admin/users/:id/role", async (req, res) => {
   try {
     const { role } = req.body;
@@ -279,7 +278,7 @@ app.put("/api/admin/users/:id/role", async (req, res) => {
   }
 });
 
-// User delete করো
+// User delete
 app.delete("/api/admin/users/:id", async (req, res) => {
   try {
     await usersCollection.deleteOne({ _id: new ObjectId(req.params.id) });
@@ -291,7 +290,6 @@ app.delete("/api/admin/users/:id", async (req, res) => {
 
   // NOTICE ROUTES
 
-  // সব notices দেখো (student + admin দুজনেই দেখতে পারবে)
   app.get("/api/notices", async (req, res) => {
     try {
       const notices = await noticesCollection
@@ -304,7 +302,6 @@ app.delete("/api/admin/users/:id", async (req, res) => {
     }
   });
 
-  // Admin notice publish করবে
   app.post("/api/admin/notices", async (req, res) => {
     try {
       const notice = {
@@ -318,7 +315,6 @@ app.delete("/api/admin/users/:id", async (req, res) => {
     }
   });
 
-  // Notice delete করো
   app.delete("/api/admin/notices/:id", async (req, res) => {
     try {
       await noticesCollection.deleteOne({ _id: new ObjectId(req.params.id) });
@@ -329,7 +325,6 @@ app.delete("/api/admin/users/:id", async (req, res) => {
   });
 
   // COMPLAINT ROUTES
-  // Student complaint submit করবে
   app.post("/api/complaints", async (req, res) => {
     try {
       const complaint = {
@@ -344,7 +339,6 @@ app.delete("/api/admin/users/:id", async (req, res) => {
     }
   });
 
-  // Admin/HallRep সব complaints দেখবে
   app.get("/api/complaints", async (req, res) => {
     try {
       const complaints = await complaintsCollection
@@ -357,7 +351,6 @@ app.delete("/api/admin/users/:id", async (req, res) => {
     }
   });
 
-  // Student নিজের complaints দেখবে
   app.get("/api/complaints/student/:studentEmail", async (req, res) => {
     try {
       const complaints = await complaintsCollection
@@ -370,7 +363,6 @@ app.delete("/api/admin/users/:id", async (req, res) => {
     }
   });
 
-  // Admin complaint resolve/update করবে
   app.put("/api/complaints/:id", async (req, res) => {
     try {
       const result = await complaintsCollection.updateOne(
@@ -384,8 +376,6 @@ app.delete("/api/admin/users/:id", async (req, res) => {
   });
 
   // PAYMENT ROUTES (Accountant)
-
-  // সব payments দেখো
   app.get("/api/payments", async (req, res) => {
     try {
       const payments = await paymentsCollection.find().toArray();
@@ -395,7 +385,7 @@ app.delete("/api/admin/users/:id", async (req, res) => {
     }
   });
 
-  // Due list (unpaid students)
+  // Due list
   app.get("/api/payments/due", async (req, res) => {
     try {
       const dueList = await paymentsCollection
@@ -407,19 +397,7 @@ app.delete("/api/admin/users/:id", async (req, res) => {
     }
   });
 
-  // // Student নিজের payment status দেখবে
-  // app.get("/api/payments/student/:studentId", async (req, res) => {
-  //   try {
-  //     const payments = await paymentsCollection
-  //       .find({ studentId: req.params.studentId })
-  //       .toArray();
-  //     res.json(payments);
-  //   } catch (err) {
-  //     res.status(500).json({ message: err.message });
-  //   }
-  // });
 
-  // ✅ নতুন (studentId, email, বা uid — যেকোনো দিয়ে query)
 app.get("/api/payments/student/:studentId", async (req, res) => {
   try {
     const id = req.params.studentId;
@@ -438,7 +416,7 @@ app.get("/api/payments/student/:studentId", async (req, res) => {
   }
 });
 
-  // Accountant payment add করবে
+  // Accountant payment add
   app.post("/api/payments", async (req, res) => {
     try {
       const payment = {
@@ -452,7 +430,7 @@ app.get("/api/payments/student/:studentId", async (req, res) => {
     }
   });
 
-  // Accountant payment update করবে (paid/unpaid/scholarship)
+  // Accountant payment update (paid/unpaid/scholarship)
   app.put("/api/payments/:id", async (req, res) => {
     try {
       const result = await paymentsCollection.updateOne(
@@ -467,7 +445,6 @@ app.get("/api/payments/student/:studentId", async (req, res) => {
 
   // CANTEEN MENU ROUTES
 
-  // আজকের menu দেখো
   app.get("/api/canteen/menu/today", async (req, res) => {
     try {
       const today = new Date().toISOString().split("T")[0]; // "2024-12-01"
@@ -478,7 +455,6 @@ app.get("/api/payments/student/:studentId", async (req, res) => {
     }
   });
 
-  // সব menus দেখো
   app.get("/api/canteen/menu", async (req, res) => {
     try {
       const menus = await canteenMenuCollection
@@ -491,13 +467,11 @@ app.get("/api/payments/student/:studentId", async (req, res) => {
     }
   });
 
-  // Canteen Manager menu post করবে
+
   app.post("/api/canteen/menu", async (req, res) => {
     try {
-      // same date-এ already আছে কিনা check করো
       const existing = await canteenMenuCollection.findOne({ date: req.body.date });
       if (existing) {
-        // থাকলে update করো
         await canteenMenuCollection.updateOne(
           { date: req.body.date },
           { $set: { ...req.body, updatedAt: new Date() } }
@@ -513,7 +487,6 @@ app.get("/api/payments/student/:studentId", async (req, res) => {
     }
   });
 
-  // Student feedback দেবে canteen-এ
   app.post("/api/canteen/feedback", async (req, res) => {
     try {
       const feedbackCollection = db.collection("canteenFeedback");
@@ -539,7 +512,6 @@ app.get("/api/payments/student/:studentId", async (req, res) => {
     }
   });
 
-  // Menu delete করো
 app.delete("/api/canteen/menu/:id", async (req, res) => {
   try {
     await canteenMenuCollection.deleteOne({ _id: new ObjectId(req.params.id) });
@@ -549,7 +521,6 @@ app.delete("/api/canteen/menu/:id", async (req, res) => {
   }
 });
 
-// Date দিয়ে specific menu দেখো
 app.get("/api/canteen/menu/date/:date", async (req, res) => {
   try {
     const menu = await canteenMenuCollection.findOne({ date: req.params.date });
@@ -561,7 +532,6 @@ app.get("/api/canteen/menu/date/:date", async (req, res) => {
 
   // HALL REP ROUTES
 
-  // সব events দেখো
   app.get("/api/events", async (req, res) => {
     try {
       const events = await eventsCollection
@@ -574,7 +544,6 @@ app.get("/api/canteen/menu/date/:date", async (req, res) => {
     }
   });
 
-  // Hall Rep event add করবে
   app.post("/api/events", async (req, res) => {
     try {
       const event = { ...req.body, createdAt: new Date() };
@@ -585,7 +554,6 @@ app.get("/api/canteen/menu/date/:date", async (req, res) => {
     }
   });
 
-  // Event update করো
   app.put("/api/events/:id", async (req, res) => {
     try {
       await eventsCollection.updateOne(
@@ -598,7 +566,6 @@ app.get("/api/canteen/menu/date/:date", async (req, res) => {
     }
   });
 
-  // Event delete করো
   app.delete("/api/events/:id", async (req, res) => {
     try {
       await eventsCollection.deleteOne({ _id: new ObjectId(req.params.id) });
@@ -608,7 +575,6 @@ app.get("/api/canteen/menu/date/:date", async (req, res) => {
     }
   });
 
-  // Event activity update করো
 app.patch("/api/events/:id/activity", async (req, res) => {
   try {
     await eventsCollection.updateOne(
@@ -624,15 +590,12 @@ app.patch("/api/events/:id/activity", async (req, res) => {
 
   app.get("/api/student/profile/:email", async (req, res) => {
   try {
-    // আগে studentsCollection-এ খোঁজো
     let student = await studentsCollection.findOne({ email: req.params.email });
 
     if (!student) {
-      // না পেলে usersCollection থেকে basic info দাও
       const user = await usersCollection.findOne({ email: req.params.email });
       if (!user) return res.status(404).json({ message: "Student not found" });
 
-      // user data দিয়ে একটা partial profile বানাও
       return res.json({
         name: user.fullName,
         email: user.email,
@@ -643,7 +606,7 @@ app.patch("/api/events/:id/activity", async (req, res) => {
         hallName: null,
         roomNumber: null,
         seatNumber: null,
-        _fromUsers: true, // admin এখনো student record add করেনি
+        _fromUsers: true,
       });
     }
 
@@ -654,7 +617,7 @@ app.patch("/api/events/:id/activity", async (req, res) => {
 });
 
 
-// Firebase login এর পরে role fetch
+// Firebase login then role fetch
 app.get("/api/auth/me", async (req, res) => {
   try {
     const { email } = req.query;
@@ -703,7 +666,6 @@ app.get("/api/application-settings", async (req, res) => {
 });
  
 // Admin: configure the window
-// body: { startDate, endDate, fee, mode: "auto" | "manual", manualOpen: bool }
 app.put("/api/admin/application-settings", async (req, res) => {
   try {
     const { startDate, endDate, fee, mode, manualOpen } = req.body;
@@ -892,8 +854,7 @@ app.get("/api/admin/applications", async (req, res) => {
   }
 });
  
-// Approve — allocates a specific vacant seat (subject to availability)
-// body: { seatId }
+// Approve — allocates a specific vacant seat (subject to availability) body: { seatId }
 app.put("/api/admin/applications/:id/approve", async (req, res) => {
   try {
     const { seatId } = req.body;
@@ -966,10 +927,7 @@ app.put("/api/admin/applications/:id/reject", async (req, res) => {
   }
 });
  
-// ============================================================
 // STRIPE CHECKOUT (application fee payment)
-// ============================================================
- 
 app.post("/api/payments/create-checkout-session", async (req, res) => {
   try {
     const { applicationId, amount, studentEmail, successUrl, cancelUrl } = req.body;
@@ -1002,10 +960,6 @@ app.post("/api/payments/create-checkout-session", async (req, res) => {
   }
 });
  
-// Fallback/manual check in case the webhook hasn't landed yet (or isn't set
-// up) by the time the app returns from the browser. This is what keeps the
-// applications collection AND the payments collection (used by the existing
-// Payment / Due List screens) in sync.
 app.get("/api/payments/session-status/:sessionId", async (req, res) => {
   try {
     const session = await stripe.checkout.sessions.retrieve(req.params.sessionId);
@@ -1032,18 +986,15 @@ app.get("/api/payments/session-status/:sessionId", async (req, res) => {
 });
  
 
-//start of the index.js
   console.log("✅ Routes configured");
 }
 
-// Start server first, then initialize database connection
 app.listen(port, () => {
   console.log(`🚀 Server running on port ${port}`);
   console.log(`📡 API URL: http://localhost:${port}`);
   console.log(`📝 Base URL: http://localhost:${port}/api`);
 });
 
-// Initialize database connection in background
 run().catch(err => {
   console.error("❌ Database initialization error:", err);
 });
