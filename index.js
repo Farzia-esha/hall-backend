@@ -23,10 +23,10 @@ async function run() {
   try {
     // Try to connect to MongoDB
     await client.connect();
-    console.log("✅ Connected to MongoDB");
+    console.log("Connected to MongoDB");
   } catch (err) {
-    console.error("⚠️  MongoDB connection warning:", err.message);
-    console.log("⚠️  Continuing without database...");
+    console.error(" MongoDB connection warning:", err.message);
+    console.log(" Continuing without database...");
   }
 
   const db = client.db("hallApps");
@@ -41,11 +41,7 @@ async function run() {
   const eventsCollection = db.collection("events");
 
 
-  // ============================================================
-  // AUTH ROUTES (Firebase Integration)
-  // ============================================================
-
-  // ✅ Signup - Password-based authentication
+  // Signup - Password-based authentication
   app.post("/api/auth/signup", async (req, res) => {
     try {
       const { fullName, email, phone, password, role } = req.body;
@@ -103,7 +99,7 @@ async function run() {
     }
   });
 
-  // ✅ Login - Password verification
+  // Login - Password verification
   app.post("/api/auth/login", async (req, res) => {
     try {
       const { email, password } = req.body;
@@ -183,7 +179,6 @@ async function run() {
   // ADMIN ROUTES
   // ============================================================
 
-  // সব students দেখো
   app.get("/api/admin/students", async (req, res) => {
     try {
       const students = await studentsCollection.find().toArray();
@@ -245,6 +240,51 @@ async function run() {
       res.status(500).json({ message: err.message });
     }
   });
+
+  // ============================================================
+// USER MANAGEMENT ROUTES (Admin)
+// ============================================================
+
+// সব users দেখো
+app.get("/api/admin/users", async (req, res) => {
+  try {
+    const users = await usersCollection.find(
+      {},
+      { projection: { password: 0 } } // password বাদ দাও
+    ).toArray();
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// User role update করো
+app.put("/api/admin/users/:id/role", async (req, res) => {
+  try {
+    const { role } = req.body;
+    const validRoles = ["student", "admin", "accountant", "canteen_manager", "hall_rep"];
+    if (!validRoles.includes(role)) {
+      return res.status(400).json({ message: "Invalid role" });
+    }
+    await usersCollection.updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { role, updatedAt: new Date() } }
+    );
+    res.json({ message: "Role updated successfully" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
+// User delete করো
+app.delete("/api/admin/users/:id", async (req, res) => {
+  try {
+    await usersCollection.deleteOne({ _id: new ObjectId(req.params.id) });
+    res.json({ message: "User deleted" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
   // ============================================================
   // NOTICE ROUTES
@@ -371,17 +411,36 @@ async function run() {
     }
   });
 
-  // Student নিজের payment status দেখবে
-  app.get("/api/payments/student/:studentId", async (req, res) => {
-    try {
-      const payments = await paymentsCollection
-        .find({ studentId: req.params.studentId })
-        .toArray();
-      res.json(payments);
-    } catch (err) {
-      res.status(500).json({ message: err.message });
-    }
-  });
+  // // Student নিজের payment status দেখবে
+  // app.get("/api/payments/student/:studentId", async (req, res) => {
+  //   try {
+  //     const payments = await paymentsCollection
+  //       .find({ studentId: req.params.studentId })
+  //       .toArray();
+  //     res.json(payments);
+  //   } catch (err) {
+  //     res.status(500).json({ message: err.message });
+  //   }
+  // });
+
+  // ✅ নতুন (studentId, email, বা uid — যেকোনো দিয়ে query)
+app.get("/api/payments/student/:studentId", async (req, res) => {
+  try {
+    const id = req.params.studentId;
+    const payments = await paymentsCollection
+      .find({
+        $or: [
+          { studentId: id },
+          { email: id },
+          { uid: id },
+        ]
+      })
+      .toArray();
+    res.json(payments);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
   // Accountant payment add করবে
   app.post("/api/payments", async (req, res) => {
@@ -557,22 +616,20 @@ app.get("/api/canteen/menu/date/:date", async (req, res) => {
     }
   });
 
-  // ============================================================
-  // STUDENT PROFILE ROUTE
-  // ============================================================
+  // Event activity update করো
+app.patch("/api/events/:id/activity", async (req, res) => {
+  try {
+    await eventsCollection.updateOne(
+      { _id: new ObjectId(req.params.id) },
+      { $set: { activityUpdate: req.body.activityUpdate, updatedAt: new Date() } }
+    );
+    res.json({ message: "Activity updated" });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
 
-  // Student নিজের profile দেখবে (email দিয়ে)
-  // app.get("/api/student/profile/:email", async (req, res) => {
-  //   try {
-  //     const student = await studentsCollection.findOne({
-  //       email: req.params.email,
-  //     });
-  //     if (!student) return res.status(404).json({ message: "Student not found" });
-  //     res.json(student);
-  //   } catch (err) {
-  //     res.status(500).json({ message: err.message });
-  //   }
-  // });
+
 
   app.get("/api/student/profile/:email", async (req, res) => {
   try {
@@ -604,6 +661,8 @@ app.get("/api/canteen/menu/date/:date", async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+
+
 
 
 // Firebase login এর পরে role fetch
