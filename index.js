@@ -4,7 +4,6 @@ require("dotenv").config();
 
 const Stripe = require("stripe");
 const stripe = Stripe(process.env.STRIPE_SECRET);
-// const { ObjectId: ObjectIdForWebhook } = require("mongodb");
 
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
@@ -27,7 +26,6 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    // Try to connect to MongoDB
     await client.connect();
     console.log("Connected to MongoDB");
   } catch (err) {
@@ -50,7 +48,7 @@ async function run() {
   const settingsCollection = db.collection("appSettings");
  
 
-  // Signup - Password-based authentication
+  // Signup - Pw-based authentication
   app.post("/api/auth/signup", async (req, res) => {
     try {
       const { fullName, email, phone, password, role } = req.body;
@@ -73,7 +71,7 @@ async function run() {
 
       // Create new user
       const newUser = {
-        uid, // Generated UID for frontend
+        uid,
         fullName,
         email,
         phone,
@@ -91,7 +89,7 @@ async function run() {
 
       const result = await usersCollection.insertOne(newUser);
 
-      // Return user data (without password)
+      // Return user data (without pw)
       res.status(201).json({
         id: result.insertedId,
         fullName: newUser.fullName,
@@ -117,20 +115,17 @@ async function run() {
         return res.status(400).json({ message: "Email and password are required" });
       }
 
-      // Find user
       const user = await usersCollection.findOne({ email });
 
       if (!user) {
         return res.status(404).json({ message: "User not found" });
       }
 
-      // Verify password
       const isPasswordValid = await bcrypt.compare(password, user.password);
       if (!isPasswordValid) {
         return res.status(401).json({ message: "Invalid password" });
       }
 
-      // Update last login
       await usersCollection.updateOne(
         { _id: user._id },
         {
@@ -142,7 +137,6 @@ async function run() {
         }
       );
 
-      // Return user data
       res.json({
         id: user._id,
         fullName: user.fullName,
@@ -183,7 +177,7 @@ async function run() {
     }
   });
 
-  // ADMIN ROUTES
+  // ADMIN
   app.get("/api/admin/students", async (req, res) => {
     try {
       const students = await studentsCollection.find().toArray();
@@ -193,7 +187,6 @@ async function run() {
     }
   });
 
-  // student add
   app.post("/api/admin/students", async (req, res) => {
     try {
       const student = {
@@ -207,7 +200,6 @@ async function run() {
     }
   });
 
-  // Student update
   app.put("/api/admin/students/:id", async (req, res) => {
     try {
       const id = req.params.id;
@@ -221,7 +213,16 @@ async function run() {
     }
   });
 
-  // Student delete
+  app.get("/api/admin/students/:id", async (req, res) => {
+  try {
+    const student = await studentsCollection.findOne({ _id: new ObjectId(req.params.id) });
+    if (!student) return res.status(404).json({ message: "Student not found" });
+    res.json(student);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
   app.delete("/api/admin/students/:id", async (req, res) => {
     try {
       const id = req.params.id;
@@ -232,7 +233,6 @@ async function run() {
     }
   });
 
-  // Room/Seat allocate
   app.put("/api/admin/allocate-room/:studentId", async (req, res) => {
     try {
       const { roomNumber, seatNumber, hallName } = req.body;
@@ -246,8 +246,6 @@ async function run() {
     }
   });
 
-
-// সব users দেখো
 app.get("/api/admin/users", async (req, res) => {
   try {
     const users = await usersCollection.find(
@@ -260,7 +258,6 @@ app.get("/api/admin/users", async (req, res) => {
   }
 });
 
-// User role update
 app.put("/api/admin/users/:id/role", async (req, res) => {
   try {
     const { role } = req.body;
@@ -278,7 +275,6 @@ app.put("/api/admin/users/:id/role", async (req, res) => {
   }
 });
 
-// User delete
 app.delete("/api/admin/users/:id", async (req, res) => {
   try {
     await usersCollection.deleteOne({ _id: new ObjectId(req.params.id) });
@@ -310,6 +306,25 @@ app.delete("/api/admin/users/:id", async (req, res) => {
       };
       const result = await noticesCollection.insertOne(notice);
       res.status(201).json({ message: "Notice published", noticeId: result.insertedId });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.put("/api/admin/notices/:id", async (req, res) => {
+    try {
+      const { title, content } = req.body;
+      if (!title || !content) {
+        return res.status(400).json({ message: "Title and content are required" });
+      }
+      const result = await noticesCollection.updateOne(
+        { _id: new ObjectId(req.params.id) },
+        { $set: { title, content, updatedAt: new Date() } }
+      );
+      if (result.matchedCount === 0) {
+        return res.status(404).json({ message: "Notice not found" });
+      }
+      res.json({ message: "Notice updated" });
     } catch (err) {
       res.status(500).json({ message: err.message });
     }
@@ -375,76 +390,7 @@ app.delete("/api/admin/users/:id", async (req, res) => {
     }
   });
 
-  // PAYMENT ROUTES (Accountant)
-  app.get("/api/payments", async (req, res) => {
-    try {
-      const payments = await paymentsCollection.find().toArray();
-      res.json(payments);
-    } catch (err) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-
-  // Due list
-  app.get("/api/payments/due", async (req, res) => {
-    try {
-      const dueList = await paymentsCollection
-        .find({ status: "unpaid" })
-        .toArray();
-      res.json(dueList);
-    } catch (err) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-
-
-app.get("/api/payments/student/:studentId", async (req, res) => {
-  try {
-    const id = req.params.studentId;
-    const payments = await paymentsCollection
-      .find({
-        $or: [
-          { studentId: id },
-          { email: id },
-          { uid: id },
-        ]
-      })
-      .toArray();
-    res.json(payments);
-  } catch (err) {
-    res.status(500).json({ message: err.message });
-  }
-});
-
-  // Accountant payment add
-  app.post("/api/payments", async (req, res) => {
-    try {
-      const payment = {
-        ...req.body,
-        createdAt: new Date(),
-      };
-      const result = await paymentsCollection.insertOne(payment);
-      res.status(201).json({ message: "Payment recorded", paymentId: result.insertedId });
-    } catch (err) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-
-  // Accountant payment update (paid/unpaid/scholarship)
-  app.put("/api/payments/:id", async (req, res) => {
-    try {
-      const result = await paymentsCollection.updateOne(
-        { _id: new ObjectId(req.params.id) },
-        { $set: { ...req.body, updatedAt: new Date() } }
-      );
-      res.json({ message: "Payment updated", result });
-    } catch (err) {
-      res.status(500).json({ message: err.message });
-    }
-  });
-
   // CANTEEN MENU ROUTES
-
   app.get("/api/canteen/menu/today", async (req, res) => {
     try {
       const today = new Date().toISOString().split("T")[0]; // "2024-12-01"
@@ -454,7 +400,6 @@ app.get("/api/payments/student/:studentId", async (req, res) => {
       res.status(500).json({ message: err.message });
     }
   });
-
   app.get("/api/canteen/menu", async (req, res) => {
     try {
       const menus = await canteenMenuCollection
@@ -466,7 +411,6 @@ app.get("/api/payments/student/:studentId", async (req, res) => {
       res.status(500).json({ message: err.message });
     }
   });
-
 
   app.post("/api/canteen/menu", async (req, res) => {
     try {
@@ -486,7 +430,7 @@ app.get("/api/payments/student/:studentId", async (req, res) => {
       res.status(500).json({ message: err.message });
     }
   });
-
+  
   app.post("/api/canteen/feedback", async (req, res) => {
     try {
       const feedbackCollection = db.collection("canteenFeedback");
@@ -498,7 +442,6 @@ app.get("/api/payments/student/:studentId", async (req, res) => {
     }
   });
 
-  // Canteen Manager feedback দেখবে
   app.get("/api/canteen/feedback", async (req, res) => {
     try {
       const feedbackCollection = db.collection("canteenFeedback");
@@ -531,7 +474,6 @@ app.get("/api/canteen/menu/date/:date", async (req, res) => {
 });
 
   // HALL REP ROUTES
-
   app.get("/api/events", async (req, res) => {
     try {
       const events = await eventsCollection
@@ -691,7 +633,6 @@ app.put("/api/admin/application-settings", async (req, res) => {
 });
  
 // SEAT INVENTORY (so admin can only allocate a seat that's vacant)
- 
 app.get("/api/admin/seats", async (req, res) => {
   try {
     const { status } = req.query; // "vacant" | "occupied"
@@ -745,11 +686,8 @@ app.delete("/api/admin/seats/:id", async (req, res) => {
   }
 });
  
-
 // STUDENT: SUBMIT / VIEW APPLICATION
- 
-// Get the current user's latest application (or null)
-app.get("/api/applications/me/:email", async (req, res) => {
+ app.get("/api/applications/me/:email", async (req, res) => {
   try {
     const application = await applicationsCollection.findOne(
       { studentEmail: req.params.email },
@@ -761,8 +699,7 @@ app.get("/api/applications/me/:email", async (req, res) => {
   }
 });
  
-// Submit a new application (only while window is open, only one active at a time,
-// and only if the student doesn't already have a hall seat)
+// Submit a new application (only while window is open, only one active at a time,& only if the student doesn't already have a hall seat)
 app.post("/api/applications", async (req, res) => {
   try {
     const settings = await settingsCollection.findOne({ key: "hallApplication" });
@@ -840,9 +777,7 @@ app.post("/api/applications", async (req, res) => {
   }
 });
 
-
 // ADMIN: REVIEW APPLICATIONS
- 
 app.get("/api/admin/applications", async (req, res) => {
   try {
     const { status } = req.query;
@@ -984,6 +919,71 @@ app.get("/api/payments/session-status/:sessionId", async (req, res) => {
     res.status(500).json({ message: err.message });
   }
 });
+
+  // PAYMENT ROUTES (Accountant)
+  app.get("/api/payments", async (req, res) => {
+    try {
+      const payments = await paymentsCollection.find().toArray();
+      res.json(payments);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  // Due list
+  app.get("/api/payments/due", async (req, res) => {
+    try {
+      const dueList = await paymentsCollection
+        .find({ status: "unpaid" })
+        .toArray();
+      res.json(dueList);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+app.get("/api/payments/student/:studentId", async (req, res) => {
+  try {
+    const id = req.params.studentId;
+    const payments = await paymentsCollection
+      .find({
+        $or: [
+          { studentId: id },
+          { email: id },
+          { uid: id },
+        ]
+      })
+      .toArray();
+    res.json(payments);
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+  // Accountant payment add
+  app.post("/api/payments", async (req, res) => {
+    try {
+      const payment = {
+        ...req.body,
+        createdAt: new Date(),
+      };
+      const result = await paymentsCollection.insertOne(payment);
+      res.status(201).json({ message: "Payment recorded", paymentId: result.insertedId });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+  // Accountant payment update (paid/unpaid/scholarship)
+  app.put("/api/payments/:id", async (req, res) => {
+    try {
+      const result = await paymentsCollection.updateOne(
+        { _id: new ObjectId(req.params.id) },
+        { $set: { ...req.body, updatedAt: new Date() } }
+      );
+      res.json({ message: "Payment updated", result });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
  
 
   console.log("✅ Routes configured");
