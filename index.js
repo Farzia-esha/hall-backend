@@ -1,3 +1,4 @@
+// Hall Backend API v2.1 - Updated 2026-07-26: Payment record creation moved to approval phase
 const express = require("express");
 const app = express();
 require("dotenv").config();
