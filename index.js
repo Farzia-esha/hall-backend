@@ -46,29 +46,23 @@ async function run() {
   const applicationsCollection = db.collection("hallApplications");
   const seatsCollection = db.collection("hallSeats");
   const settingsCollection = db.collection("appSettings");
- 
 
-  // Signup - Pw-based authentication
-  app.post("/api/auth/signup", async (req, res) => {
+  // Signup - Pw-based auth
+app.post("/api/auth/signup", async (req, res) => {
     try {
       const { fullName, email, phone, password, role } = req.body;
-
       // Validation
       if (!fullName || !email || !phone || !password) {
         return res.status(400).json({ message: "Missing required fields" });
       }
-
       // Check if user already exists
       const existing = await usersCollection.findOne({ email });
       if (existing) {
         return res.status(400).json({ message: "Email already exists" });
       }
-
       // Generate UID (unique identifier for frontend)
       const uid = `user_${crypto.randomBytes(12).toString('hex')}`;
-
       const hashedPassword = await bcrypt.hash(password, 10);
-
       // Create new user
       const newUser = {
         uid,
@@ -105,7 +99,6 @@ async function run() {
     }
   });
 
-  // Login - Pw verification
   app.post("/api/auth/login", async (req, res) => {
     try {
       const { email, password } = req.body;
@@ -285,7 +278,6 @@ app.delete("/api/admin/users/:id", async (req, res) => {
 });
 
   // NOTICE ROUTES
-
   app.get("/api/notices", async (req, res) => {
     try {
       const notices = await noticesCollection
@@ -607,7 +599,6 @@ app.get("/api/application-settings", async (req, res) => {
   }
 });
  
-// Admin: configure the window
 app.put("/api/admin/application-settings", async (req, res) => {
   try {
     const { startDate, endDate, fee, mode, manualOpen } = req.body;
@@ -699,7 +690,7 @@ app.delete("/api/admin/seats/:id", async (req, res) => {
   }
 });
  
-// Submit a new application (only while window is open, only one active at a time,& only if the student doesn't already have a hall seat)
+//Submit a new application(only while window is open,only one active at a time,& only if the student doesn't already have a hall seat)
 app.post("/api/applications", async (req, res) => {
   try {
     const settings = await settingsCollection.findOne({ key: "hallApplication" });
@@ -777,7 +768,7 @@ app.post("/api/applications", async (req, res) => {
   }
 });
 
-// ADMIN: REVIEW APPLICATIONS
+//REVIEW APPLICATIONS
 app.get("/api/admin/applications", async (req, res) => {
   try {
     const { status } = req.query;
@@ -789,7 +780,7 @@ app.get("/api/admin/applications", async (req, res) => {
   }
 });
  
-// Approve — allocates a specific vacant seat (subject to availability) body: { seatId }
+// Approve — allocates a specific vacant seat
 app.put("/api/admin/applications/:id/approve", async (req, res) => {
   try {
     const { seatId } = req.body;
@@ -895,22 +886,79 @@ app.post("/api/payments/create-checkout-session", async (req, res) => {
   }
 });
  
+// Generic checkout — works for ANY payment record (accountant-added, hall-application-mirrored, etc.)
+app.post("/api/payments/:id/create-checkout-session", async (req, res) => {
+  try {
+    const payment = await paymentsCollection.findOne({ _id: new ObjectId(req.params.id) });
+    if (!payment) return res.status(404).json({ message: "Payment record not found" });
+    if (payment.status === "paid") {
+      return res.status(400).json({ message: "This payment is already paid" });
+    }
+
+    const net = (Number(payment.amount) || 0) - (Number(payment.scholarshipAmount) || 0);
+    if (net <= 0) {
+      return res.status(400).json({ message: "Nothing due for this payment" });
+    }
+
+    const { successUrl, cancelUrl } = req.body;
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      mode: "payment",
+      customer_email: payment.email,
+      line_items: [
+        {
+          price_data: {
+            currency: "bdt",
+            product_data: { name: payment.semester || "Payment" },
+            unit_amount: Math.round(net * 100),
+          },
+          quantity: 1,
+        },
+      ],
+      metadata: {
+        paymentId: String(payment._id),
+        applicationId: payment.applicationId ? String(payment.applicationId) : "",
+      },
+      success_url: successUrl || process.env.CLIENT_SUCCESS_SCHEME || "https://example.com/success",
+      cancel_url: cancelUrl || process.env.CLIENT_CANCEL_SCHEME || "https://example.com/cancel",
+    });
+
+    res.json({ url: session.url, sessionId: session.id });
+  } catch (err) {
+    res.status(500).json({ message: err.message });
+  }
+});
+
 app.get("/api/payments/session-status/:sessionId", async (req, res) => {
   try {
     const session = await stripe.checkout.sessions.retrieve(req.params.sessionId);
     const status = session.payment_status; // "paid" | "unpaid"
 
     if (status === "paid") {
-      const applicationId = session.metadata?.applicationId;
+      const { applicationId, paymentId } = session.metadata || {};
+
+      // Case 1: paid from a specific payment record (Payment Status page / accountant-added dues)
+      if (paymentId) {
+        await paymentsCollection.updateOne(
+          { _id: new ObjectId(paymentId) },
+          { $set: { status: "paid", paidAt: new Date(), stripeSessionId: session.id } }
+        );
+      }
+
+      // Case 2: linked to a hall application — keep application + payment record in sync either way
       if (applicationId) {
         await applicationsCollection.updateOne(
           { _id: new ObjectId(applicationId) },
           { $set: { paymentStatus: "paid", paidAt: new Date(), stripeSessionId: session.id } }
         );
-        await paymentsCollection.updateOne(
-          { applicationId: new ObjectId(applicationId) },
-          { $set: { status: "paid", paidAt: new Date(), stripeSessionId: session.id } }
-        );
+        // Fallback for the older "Apply for Hall Seat" flow, which only sends applicationId
+        if (!paymentId) {
+          await paymentsCollection.updateOne(
+            { applicationId: new ObjectId(applicationId) },
+            { $set: { status: "paid", paidAt: new Date(), stripeSessionId: session.id } }
+          );
+        }
       }
     }
 
@@ -920,10 +968,20 @@ app.get("/api/payments/session-status/:sessionId", async (req, res) => {
   }
 });
 
-  // PAYMENT ROUTES (Accountant)
-  app.get("/api/payments", async (req, res) => {
+
+app.get("/api/payments", async (req, res) => {
     try {
-      const payments = await paymentsCollection.find().toArray();
+      const { search, semester, status } = req.query;
+      let filter = {};
+      if (status) filter.status = status;
+      if (semester) filter.semester = semester;
+      if (search) {
+        filter.$or = [
+          { studentName: { $regex: search, $options: "i" } },
+          { email: { $regex: search, $options: "i" } },
+        ];
+      }
+      const payments = await paymentsCollection.find(filter).sort({ createdAt: -1 }).toArray();
       res.json(payments);
     } catch (err) {
       res.status(500).json({ message: err.message });
@@ -942,7 +1000,37 @@ app.get("/api/payments/session-status/:sessionId", async (req, res) => {
     }
   });
 
-app.get("/api/payments/student/:studentId", async (req, res) => {
+
+  app.get("/api/payments/summary", async (req, res) => {
+    try {
+      const all = await paymentsCollection.find().toArray();
+      const now = new Date();
+      const thisMonth = now.getMonth();
+      const thisYear = now.getFullYear();
+
+      let totalCollected = 0, totalDue = 0, monthlyCollection = 0, pendingCount = 0;
+
+      all.forEach(p => {
+        const net = (Number(p.amount) || 0) - (Number(p.scholarshipAmount) || 0);
+        if (p.status === "paid") {
+          totalCollected += net;
+          const paidDate = p.paidAt ? new Date(p.paidAt) : null;
+          if (paidDate && paidDate.getMonth() === thisMonth && paidDate.getFullYear() === thisYear) {
+            monthlyCollection += net;
+          }
+        } else {
+          totalDue += net;
+          pendingCount += 1;
+        }
+      });
+
+      res.json({ totalCollected, totalDue, monthlyCollection, pendingCount });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+  app.get("/api/payments/student/:studentId", async (req, res) => {
   try {
     const id = req.params.studentId;
     const payments = await paymentsCollection
@@ -958,7 +1046,7 @@ app.get("/api/payments/student/:studentId", async (req, res) => {
   } catch (err) {
     res.status(500).json({ message: err.message });
   }
-});
+  });
   // Accountant payment add
   app.post("/api/payments", async (req, res) => {
     try {
@@ -985,6 +1073,52 @@ app.get("/api/payments/student/:studentId", async (req, res) => {
     }
   });
  
+  app.get("/api/payments/report", async (req, res) => {
+    try {
+      const { month, year, semester } = req.query;
+      const all = await paymentsCollection.find().toArray();
+
+      let filtered = all;
+      if (month && year) {
+        filtered = filtered.filter(p => {
+          const d = p.paidAt ? new Date(p.paidAt) : new Date(p.createdAt);
+          return d.getMonth() + 1 === Number(month) && d.getFullYear() === Number(year);
+        });
+      }
+      if (semester) {
+        filtered = filtered.filter(p => p.semester === semester);
+      }
+
+      const paid = filtered.filter(p => p.status === "paid");
+      const unpaid = filtered.filter(p => p.status !== "paid");
+
+      const totalCollected = paid.reduce((s, p) => s + ((Number(p.amount) || 0) - (Number(p.scholarshipAmount) || 0)), 0);
+      const totalDue = unpaid.reduce((s, p) => s + ((Number(p.amount) || 0) - (Number(p.scholarshipAmount) || 0)), 0);
+
+      res.json({
+        totalRecords: filtered.length,
+        paidCount: paid.length,
+        unpaidCount: unpaid.length,
+        totalCollected,
+        totalDue,
+        records: filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt)),
+      });
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+
+
+  app.get("/api/payments/:id", async (req, res) => {
+    try {
+      const payment = await paymentsCollection.findOne({ _id: new ObjectId(req.params.id) });
+      if (!payment) return res.status(404).json({ message: "Payment not found" });
+      res.json(payment);
+    } catch (err) {
+      res.status(500).json({ message: err.message });
+    }
+  });
+  
 
   console.log("✅ Routes configured");
 }
