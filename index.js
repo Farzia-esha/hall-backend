@@ -25,7 +25,7 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
     console.log("Connected to MongoDB");
   } catch (err) {
     console.error(" MongoDB connection warning:", err.message);
@@ -33,8 +33,6 @@ async function run() {
   }
 
   const db = client.db("hallApps");
-
-  // ===== COLLECTIONS =====
   const usersCollection = db.collection("users");
   const studentsCollection = db.collection("students");
   const noticesCollection = db.collection("notices");
@@ -1117,15 +1115,17 @@ app.get("/api/payments", async (req, res) => {
       res.status(500).json({ message: err.message });
     }
   });
-  
+
 
   console.log("✅ Routes configured");
 }
 
+
+
 app.listen(port, () => {
   console.log(`🚀 Server running on port ${port}`);
-  console.log(`📡 API URL: http://localhost:${port}`);
-  console.log(`📝 Base URL: http://localhost:${port}/api`);
+  // console.log(`📡 API URL: http://localhost:${port}`);
+  // console.log(`📝 Base URL: http://localhost:${port}/api`);
 });
 
 run().catch(err => {
