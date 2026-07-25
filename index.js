@@ -8,7 +8,6 @@ const stripe = Stripe(process.env.STRIPE_SECRET);
 const cors = require("cors");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
-require("dotenv").config();
 const { MongoClient, ServerApiVersion,ObjectId } = require("mongodb");
 const port = process.env.PORT || 5000;
 
