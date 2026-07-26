@@ -1,4 +1,3 @@
-// Hall Backend API v2.1 - Updated 2026-07-26: Payment record creation moved to approval phase
 const express = require("express");
 const app = express();
 require("dotenv").config();
@@ -19,11 +18,6 @@ const uri = `mongodb+srv://${process.env.DB_USERNAME}:${process.env.DB_PASSWORD}
 
 // ---------------------------------------------------------------------------
 // SERVERLESS-SAFE MONGODB CONNECTION
-// On Vercel, each invocation may run in a fresh (or frozen/thawed) execution
-// context. A client connected once at module load can go stale ("Topology is
-// closed") by the time a later request comes in. We cache the client across
-// warm invocations, but verify it's alive (via ping) before reusing it, and
-// transparently reconnect if it isn't.
 // ---------------------------------------------------------------------------
 let cachedClient = null;
 let cachedDb = null;
@@ -61,9 +55,6 @@ async function connectToDatabase() {
   return db;
 }
 
-// Middleware: make sure we have a live DB connection before any route runs,
-// and expose the collections on req.collections so routes don't rely on
-// closure variables that could go stale.
 app.use(async (req, res, next) => {
   try {
     const db = await connectToDatabase();
@@ -802,9 +793,6 @@ app.post("/api/applications", async (req, res) => {
     };
     const result = await applications.insertOne(application);
 
-    // DO NOT create payment record yet — it will be created when admin approves the application
-    // This ensures the payment button only appears after admin approval
-
     res.status(201).json({
       message: "Application submitted",
       applicationId: result.insertedId,
@@ -1295,8 +1283,6 @@ app.get("/api/payments/:id", async (req, res) => {
 
 // ---------------------------------------------------------------------------
 // SERVER START
-// Only call app.listen when run directly (local/dev). On Vercel, the
-// exported app is used directly as the serverless request handler.
 // ---------------------------------------------------------------------------
 if (require.main === module) {
   app.listen(port, () => {
